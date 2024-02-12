@@ -5,8 +5,7 @@ import (
   "bytes"
   "sync"
   "os"
-  "context"
-  "strconv"
+  "fmt"
   "encoding/json"
   "database/sql"
   _ "github.com/mattn/go-sqlite3"
@@ -14,24 +13,44 @@ import (
   "github.com/elastic/go-elasticsearch/v8/esapi"
 )
 
+const indexName = "filings"
 const dbPath = "filings-2024-02-07.sqlite3"
 const selectString = `
-  SELECT companies.ticker, companies.name, companies.industry, 
-  companies.index_membership, filings.accession_number, filings.filed_date, filings.cik,
-  filings.state_of_incorporation, filings.fiscal_year_end, item1.contents, item1.epic
+  SELECT 
+    companies.ticker, 
+    companies.name, 
+    companies.industry, 
+    coalesce(companies.index_membership, ''), 
+    filings.accession_number, 
+    filings.filed_date, 
+    filings.cik,
+    coalesce(filings.state_of_incorporation, ''), 
+    coalesce(filings.fiscal_year_end, ''), 
+    item1.contents as item1, 
+    coalesce(item1a.contents, '') as item1a
   FROM companies 
   JOIN filings ON companies.ticker=filings.ticker
   JOIN item1 ON filings.accession_number=item1.accession_number
-  LIMIT 3000`
+  LEFT JOIN item1a ON filings.accession_number=item1a.accession_number
+  `
 
 type QueryResult struct {
-  Ticker, Name, Industry, Index, AccNum, Filed, Cik, IncorpSt, YearEnd, Contents, Epic sql.NullString
+  Ticker     string 
+  Name       string
+  Industry   string
+  StockIndex string
+  Filed      string
+  Cik        string
+  IncorpSt   string
+  YearEnd    string
+  Item1      string
+  Item1a     string
 }
 
 
-var client *elasticsearch.Client
+var es *elasticsearch.Client
 
-func client_init() {
+func clientInit() {
   var err error
 
   cfg := elasticsearch.Config {
@@ -43,16 +62,54 @@ func client_init() {
     CertificateFingerprint: os.Getenv("ES_CERTFP"),
   }
 
-  client, err = elasticsearch.NewClient(cfg)
+  es, err = elasticsearch.NewClient(cfg)
   if err != nil {
     log.Fatalf("Error creating client: %s", err)
   }
 }
 
+// see https://github.com/elastic/go-elasticsearch/blob/main/_examples/bulk/default.go
+
+func bulkInsert(ids []string, qrs []QueryResult, wg *sync.WaitGroup) {
+  defer wg.Done()
+
+  var payload []byte
+
+  for i, qr := range qrs {
+    // Build the request body.
+    data, err := json.Marshal(qr)
+    if err != nil {
+      log.Fatalf("Error marshaling document: %s", err)
+    }
+
+    // prepare metadata
+    meta := []byte(fmt.Sprintf(`{ "index" : { "_id" : "%s" } }%s`, ids[i], "\n"))
+
+    // add to payload
+    payload = append(payload, meta...)
+    payload = append(payload, data...)
+    payload = append(payload, "\n"...) // bulk api expects newline separated documents
+
+  }
+
+  res, err := es.Bulk(bytes.NewReader(payload), es.Bulk.WithIndex(indexName))
+  if err != nil {
+    log.Fatalf("Error getting response: %s", err)
+  }
+  if res.IsError() {
+    log.Fatalf("[%s] Error in bulk indexing starting with ID=%s", res.Status(), ids[0])
+  }
+  res.Body.Close()
+}
+
 func main() {
 	var (
+    res *esapi.Response
+    err error
     row *sql.Rows
-		wg sync.WaitGroup
+    wg sync.WaitGroup
+    ids []string
+    qrs []QueryResult
 	)
 
   // open sql database
@@ -61,24 +118,27 @@ func main() {
 		log.Fatalf("Error opening database  : %s", err)
 	}
 
-  // initialize elasticsearch client
-  client_init()
-  // delete index
-  client.Indices.Delete([]string{"filings"})
-
-	// 1. Get cluster info
-	res, err := client.Info()
-	if err != nil {
-		log.Fatalf("Error getting response: %s", err)
+  // initialize elasticsearch client and recreate index
+  clientInit()
+  res, err = es.Indices.Delete([]string{indexName})
+  if err != nil {
+		log.Fatalf("Error deleting index: %s", err)
 	}
-	defer res.Body.Close()
-	// Check response status
-	if res.IsError() {
-		log.Fatalf("Error: %s", res.String())
+  if res.IsError() {
+		log.Fatalf("res error deleting index: %s", err)
 	}
+  res.Body.Close()
+  res, err = es.Indices.Create(indexName)
+  if err != nil {
+		log.Fatalf("Error creating index: %s", err)
+	}
+  if res.IsError() {
+		log.Fatalf("res error creating index: %s", err)
+	}
+  res.Body.Close()
 
 
-	// 2. query db and index documents concurrently
+	// query db and index documents
   selectSt, err := db.Prepare(selectString)
 	if err != nil {
 		log.Fatalf("Error preparing statement: %s", err)
@@ -91,42 +151,31 @@ func main() {
   i := 0
 	for row.Next() {
     i+=1
-		wg.Add(1)
     var qr QueryResult
-    err = row.Scan(&qr.Ticker, &qr.Name, &qr.Industry, &qr.Index, &qr.AccNum, &qr.Filed, 
-                   &qr.Cik, &qr.IncorpSt, &qr.YearEnd, &qr.Contents, &qr.Epic) 
+    var id string // use accession_number for id
+    err = row.Scan(&qr.Ticker, &qr.Name, &qr.Industry, &qr.StockIndex, &id, &qr.Filed, 
+                   &qr.Cik, &qr.IncorpSt, &qr.YearEnd, &qr.Item1, &qr.Item1a) 
     if err != nil {
       log.Fatalf("Error scanning row: %s", err)
     }
 
-		go func(i int, qr QueryResult) {
-			defer wg.Done()
+    ids = append(ids, id)
+    qrs = append(qrs, qr)
 
-			// Build the request body.
-			data, err := json.Marshal(qr)
-			if err != nil {
-				log.Fatalf("Error marshaling document: %s", err)
-			}
+    if i % 100 == 0 {
+      wg.Add(1)
+      bulkInsert(ids, qrs, &wg)
+      ids = nil
+      qrs = nil
+    }
 
-			// Set up the request object.
-			req := esapi.IndexRequest{
-				Index:      "filings",
-        DocumentID: strconv.Itoa(i) + ":item1",
-				Body:       bytes.NewReader(data),
-				Refresh:    "true",
-			}
-
-			// Perform the request with the client.
-			res, err := req.Do(context.Background(), client)
-			if err != nil {
-				log.Fatalf("Error getting response: %s", err)
-			}
-			if res.IsError() {
-				log.Printf("[%s] Error indexing document ID=%d", res.Status(), i)
-			}
-      res.Body.Close()
-		}(i, qr)
 	}
-	wg.Wait()
+  // add any leftover
+  if len(ids) != 0 {
+    wg.Add(1)
+    bulkInsert(ids, qrs, &wg)
+  }
+
   log.Println(i)
+  wg.Wait()
 }
