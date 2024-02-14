@@ -3,6 +3,8 @@ package main
 import (
   "log"
   "os"
+  "io"
+  "fmt"
   "encoding/json"
   "strings"
   "github.com/elastic/go-elasticsearch/v8"
@@ -11,6 +13,36 @@ import (
 const indexName = "filings"
 
 var es *elasticsearch.Client
+
+var query = `{ 
+              "_source": ["Ticker", "Name", "StockIndex", "Filed"],
+              "query": { "match_phrase": { "Item1": "%s" } },
+              "highlight": { "fragment_size": 200, "fields": { "Item1": {} } },
+              "size": 100
+            }`
+
+type ResultBody struct {
+  Took float64 `json:"took"`
+  Hits struct {
+    Total struct {
+      Num int `json:"value"`
+    } `json:"total"`
+    Values []struct {  
+      Id     string  `json:"_id"`
+      Score  float64 `json:"_score"`
+      Source struct {
+        Ticker     string
+        Name       string
+        StockIndex string
+        Filed      string
+      } `json:"_source"`
+      Highlights struct {
+        Item1  []string
+        Item1a []string
+      } `json:"highlight"`
+    } `json:"hits"`
+  } `json:"hits"`
+}
 
 func client_init() {
   var err error
@@ -35,13 +67,9 @@ func client_init() {
 func main() {
   client_init()
 
-  //query := `{"query":{"match":{"Item1":{"query":"artificial intelligence","operator":"AND"}}}}`
-  //query := `{"query":{"match_phrase":{"Item1a":{"query":"mr. Musk", "analyzer":"standard"}}}}`
-  query := `{"query":{"term":{"Industry.keyword":"Agricultural Inputs"}}}`
-  //query := `{"query":{"range":{"Filed":{"gte":"2001-01","lte":"2002-01"}}}}`
   res, err := es.Search(
     es.Search.WithIndex(indexName),
-    es.Search.WithBody(strings.NewReader(query)),
+    es.Search.WithBody(strings.NewReader(fmt.Sprintf(query, "artificial intelligence"))),
     es.Search.WithPretty(),
   )
   if err != nil {
@@ -62,27 +90,19 @@ func main() {
 		}
 	}
 
-	var r  map[string]interface{}
-	if err := json.NewDecoder(res.Body).Decode(&r); err != nil {
-		log.Fatalf("Error parsing the response body: %s", err)
-	}
-	// Print the response status, number of results, and request duration.
-	log.Printf(
-		"[%s] %d hits; took: %dms",
-		res.Status(),
-		int(r["hits"].(map[string]interface{})["total"].(map[string]interface{})["value"].(float64)),
-		int(r["took"].(float64)),
-	)
-	// Print the ID and document source for each hit.
-  /*
-	for _, hit := range r["hits"].(map[string]interface{})["hits"].([]interface{}) {
-    if str, ok := hit.(map[string]interface{})["_source"].(map[string]interface{})["Item1"].(string); ok {
-      log.Printf(" * ID=%s, %s", hit.(map[string]interface{})["_id"], str[:8])
-	    log.Println(strings.Repeat("=", 37))
+  if res.Status() == "200 OK" {
+    body, err := io.ReadAll(res.Body)
+    if err != nil {
+      log.Fatalf("Error reading the response body: %s", err)
     }
-	}
-  */
-
-
+    var resultBody ResultBody
+    if err = json.Unmarshal(body, &resultBody); err != nil {
+      log.Fatalf("Error parsing the response body: %s", err)
+    }
+    log.Printf("took: %v ms\n", resultBody.Took)
+    log.Printf("hits: %d\n", resultBody.Hits.Total.Num)
+    for _, hit := range resultBody.Hits.Values {
+      log.Printf("  id: %s\n", hit.Id)
+    }
+  }
 }
-
