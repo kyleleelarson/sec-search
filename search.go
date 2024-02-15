@@ -14,12 +14,24 @@ const indexName = "filings"
 
 var es *elasticsearch.Client
 
-var query = `{ 
+
+var histogramQuery = `{ 
+        "size": 0,
+        "query": { 
+              "bool": { 
+                "must": [{ "match_phrase": { "Item1": "%s" }}],
+                "filter": [{ "bool": { "must": [{ "term": { "StockIndex.keyword": "%s" }}]}}]}},
+        "aggs": { "year": { "date_histogram": { "field": "Filed", "calendar_interval": "1y"}}}
+    }`
+
+var highlightQuery = `{ 
               "_source": ["Ticker", "Name", "StockIndex", "Filed"],
               "query": { "match_phrase": { "Item1": "%s" } },
               "highlight": { "fragment_size": 200, "fields": { "Item1": {} } },
-              "size": 100
+              "sort": [ { "Filed": { "order": "desc", "unmapped_type": "date" } } ],
+              "size": 1000
             }`
+// including highlight makes query ~3.5 times slower
 
 type ResultBody struct {
   Took float64 `json:"took"`
@@ -69,8 +81,7 @@ func main() {
 
   res, err := es.Search(
     es.Search.WithIndex(indexName),
-    es.Search.WithBody(strings.NewReader(fmt.Sprintf(query, "artificial intelligence"))),
-    es.Search.WithPretty(),
+    es.Search.WithBody(strings.NewReader(fmt.Sprintf(highlightQuery, "blockchain"))),
   )
   if err != nil {
     log.Fatalf("Error getting response: %s", err)
@@ -101,8 +112,35 @@ func main() {
     }
     log.Printf("took: %v ms\n", resultBody.Took)
     log.Printf("hits: %d\n", resultBody.Hits.Total.Num)
-    for _, hit := range resultBody.Hits.Values {
-      log.Printf("  id: %s\n", hit.Id)
+    for i, hit := range resultBody.Hits.Values {
+      log.Printf("  id: %s, filed: %s, ticker: %s, index: %s\n", hit.Id, hit.Source.Filed,
+                  hit.Source.Ticker, hit.Source.StockIndex)
+      if i > 10 {
+        break
+      }
     }
   }
+
+  res, err = es.Search(
+    es.Search.WithIndex(indexName),
+    es.Search.WithBody(strings.NewReader(fmt.Sprintf(histogramQuery, "blockchain", "RUSSELL 2000"))),
+    es.Search.WithPretty(),
+  )
+  if err != nil {
+    log.Fatalf("Error getting response: %s", err)
+  }
+  defer res.Body.Close()
+	if res.IsError() {
+		var e map[string]interface{}
+		if err := json.NewDecoder(res.Body).Decode(&e); err != nil {
+			log.Fatalf("Error parsing the response (with error) body: %s", err)
+		} else {
+			// Print the response status and error information.
+			log.Fatalf("res.IsError [%s] %s: %s",
+				res.Status(),
+				e["error"].(map[string]interface{})["type"],
+				e["error"].(map[string]interface{})["reason"],
+			)
+		}
+	}
 }
