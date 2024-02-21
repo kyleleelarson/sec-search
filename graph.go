@@ -5,11 +5,14 @@ import (
   "os"
   "io"
   "fmt"
+  "net/http"
+  "html/template"
   "encoding/json"
   "strings"
   "github.com/elastic/go-elasticsearch/v8"
 	"github.com/go-echarts/go-echarts/v2/charts"
 	"github.com/go-echarts/go-echarts/v2/opts"
+  chartrender "github.com/go-echarts/go-echarts/v2/render"
 )
 
 const indexName = "filings"
@@ -46,6 +49,36 @@ type HistogramResult struct {
   } `json:"aggregations"`
 }
 
+type embedRender struct {
+  c      interface{}
+  before []func()
+}
+
+func NewEmbedRender(c interface{}, before ...func()) chartrender.Renderer {
+  return &embedRender{c: c, before: before}
+}
+
+func (r *embedRender) Render(w io.Writer) error {
+  dat, err := os.ReadFile("index.html")
+  baseTpl := string(dat)
+  const tplName = "chart"
+  for _, fn := range r.before {
+    fn()
+  }
+
+  tpl := template.
+    Must(template.New(tplName). // must is a wrapper for a func returning a template, panics if err
+      Funcs(template.FuncMap{
+        "safeJS": func(s interface{}) template.JS {
+          return template.JS(fmt.Sprint(s)) // concatenates and casts to type JS
+        },
+      }).
+      Parse(baseTpl),
+    )
+  err = tpl.ExecuteTemplate(w, tplName, r.c)
+  return err
+}
+
 func client_init() {
   var err error
 
@@ -66,12 +99,10 @@ func client_init() {
 
 
 
-func main() {
+func httpserver(w http.ResponseWriter, r *http.Request) {
+  searchTerm := r.FormValue("searchterm")
   barData    := make(map[string][]opts.BarData)
   stockIndex := "RUSSELL 2000"
-  searchTerm := "supply chain"
-
-  client_init()
 
   for _, field := range fields {
     res, err := es.Search(
@@ -113,7 +144,7 @@ func main() {
       for _, b := range result.Aggregations.Year.Buckets {
         year := b.Date[:4]
         count := int(b.Count)
-        log.Printf("  date: %s, count: %v\n", year, count)
+        //log.Printf("  date: %s, count: %v\n", year, count)
         counts[year] = count
       }
 
@@ -126,6 +157,7 @@ func main() {
 
 	// create a new bar instance
 	bar := charts.NewBar()
+  bar.Renderer = NewEmbedRender(bar, bar.Validate)
 	// set some global options like Title/Legend/ToolTip or anything else
 	bar.SetGlobalOptions(charts.WithTitleOpts(opts.Title{
 		Title:    searchTerm,
@@ -139,7 +171,13 @@ func main() {
     SetSeriesOptions(charts.WithBarChartOpts(opts.BarChart{
 		  Stack: "stackA",
 		}))
-	f, _ := os.Create("counts.html")
-	bar.Render(f)
+
+	bar.Render(w)
 }
 
+func main() {
+  client_init()
+	http.HandleFunc("/", httpserver)
+	//http.HandleFunc("/search", httpserver)
+	http.ListenAndServe(":8081", nil)
+}
