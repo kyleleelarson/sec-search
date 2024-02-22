@@ -5,6 +5,7 @@ import (
   "os"
   "io"
   "fmt"
+  "bytes"
   "net/http"
   "html/template"
   "encoding/json"
@@ -16,6 +17,7 @@ import (
 )
 
 const indexName = "filings"
+var templates = template.Must(template.ParseFiles("table.html"))
 var fields = [2]string {"Item1","Item1a"}
 var years = [20]string {"2004","2005","2006","2007","2008","2009","2010","2011","2012","2013",
                         "2014","2015","2016","2017","2018","2019","2020","2021","2022","2023"}
@@ -47,6 +49,39 @@ type HistogramResult struct {
       } `json:"buckets"`
     } `json:"year"`
   } `json:"aggregations"`
+}
+var highlightQuery = `{ 
+              "_source": ["Ticker", "Name", "StockIndex", "Filed"],
+              "query": { 
+                    "bool": { 
+                      "must": [{ "match_phrase": { "%s": "%s" }}],
+                      "filter": [{ "bool": { "must": [{ "term": { "StockIndex.keyword": "%s" }}]}}]}},
+              "highlight": { "fragment_size": 200, "fields": { "Item1": {} } },
+              "sort": [ { "Filed": { "order": "desc", "unmapped_type": "date" } } ],
+              "size": 30
+            }`
+
+type ResultBody struct {
+  Took float64 `json:"took"`
+  Hits struct {
+    Total struct {
+      Num int `json:"value"`
+    } `json:"total"`
+    Values []struct {  
+      Id     string  `json:"_id"`
+      Score  float64 `json:"_score"`
+      Source struct {
+        Ticker     string
+        Name       string
+        StockIndex string
+        Filed      string
+      } `json:"_source"`
+      Highlights struct {
+        Item1  []template.HTML
+        Item1a []template.HTML
+      } `json:"highlight"`
+    } `json:"hits"`
+  } `json:"hits"`
 }
 
 type embedRender struct {
@@ -102,7 +137,7 @@ func client_init() {
 func httpserver(w http.ResponseWriter, r *http.Request) {
   searchTerm := r.FormValue("searchterm")
   barData    := make(map[string][]opts.BarData)
-  stockIndex := "RUSSELL 2000"
+  stockIndex := "S&P 500"
 
   for _, field := range fields {
     res, err := es.Search(
@@ -172,7 +207,64 @@ func httpserver(w http.ResponseWriter, r *http.Request) {
 		  Stack: "stackA",
 		}))
 
-	bar.Render(w)
+  var buf bytes.Buffer
+
+  err := bar.Render(&buf)
+  if err != nil {
+    log.Fatalf("Error rendering into buffer: %s", err)
+  }
+
+  res, err := es.Search(
+    es.Search.WithIndex(indexName),
+    es.Search.WithBody(strings.NewReader(fmt.Sprintf(highlightQuery, "Item1", searchTerm, stockIndex))),
+  )
+  if err != nil {
+    log.Fatalf("Error getting response: %s", err)
+  }
+  defer res.Body.Close()
+	if res.IsError() {
+		var e map[string]interface{}
+		if err := json.NewDecoder(res.Body).Decode(&e); err != nil {
+			log.Fatalf("Error parsing the response (with error) body: %s", err)
+		} else {
+			// Print the response status and error information.
+			log.Fatalf("[%s] %s: %s",
+				res.Status(),
+				e["error"].(map[string]interface{})["type"],
+				e["error"].(map[string]interface{})["reason"],
+			)
+		}
+	}
+
+  if res.Status() == "200 OK" {
+    body, err := io.ReadAll(res.Body)
+    if err != nil {
+      log.Fatalf("Error reading the response body: %s", err)
+    }
+    var resultBody ResultBody
+    if err = json.Unmarshal(body, &resultBody); err != nil {
+      log.Fatalf("Error parsing the response body: %s", err)
+    }
+    log.Printf("took: %v ms\n", resultBody.Took)
+    log.Printf("hits: %d\n", resultBody.Hits.Total.Num)
+    for i, hit := range resultBody.Hits.Values {
+      log.Printf("  id: %s, filed: %s, ticker: %s, index: %s\n", hit.Id, hit.Source.Filed,
+                  hit.Source.Ticker, hit.Source.StockIndex)
+      if i > 1 {
+        break
+      }
+    }
+    err = templates.ExecuteTemplate(&buf, "table.html", resultBody)
+    if err != nil {
+      http.Error(w, err.Error(), http.StatusInternalServerError)
+    }
+  }
+  /*
+  page := template.HTML(buf.String())
+  finalTpl := template.Must(template.New("final").Parse(`{{.}}`))
+  finalTpl.Execute(w, page)
+  */
+  fmt.Fprintf(w, "%s", buf.String())
 }
 
 func main() {
