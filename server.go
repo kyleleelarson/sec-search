@@ -13,10 +13,16 @@ import (
 )
 
 var client *ElasticClient
-var templates = template.Must(template.ParseFiles("table.html"))
+var templates = template.Must(template.ParseFiles("./html/table.html"))
 var fields = [2]string {"Item1","Item1a"}
 var years = [20]string {"2004","2005","2006","2007","2008","2009","2010","2011","2012","2013",
                         "2014","2015","2016","2017","2018","2019","2020","2021","2022","2023"}
+type TableData struct {
+  Years []string
+  Fields []string
+  Hits [](map[string]any)
+}
+
 
 type embedRender struct {
   c      interface{}
@@ -28,7 +34,7 @@ func NewEmbedRender(c interface{}, before ...func()) chartrender.Renderer {
 }
 
 func (r *embedRender) Render(w io.Writer) error {
-  dat, err := os.ReadFile("index.html")
+  dat, err := os.ReadFile("html/graph.html")
   baseTpl := string(dat)
   const tplName = "chart"
   for _, fn := range r.before {
@@ -49,15 +55,22 @@ func (r *embedRender) Render(w io.Writer) error {
 }
 
 func httpserver(w http.ResponseWriter, r *http.Request) {
-  var buf bytes.Buffer
+  var (
+    buf bytes.Buffer
+    tableData TableData
+  )
   barData := make(map[string]([]opts.BarData))
 
   searchTerm := r.FormValue("searchterm")
-  stockIndex := "S&P 500"
+  stockIndex := r.FormValue("stockindex")
+  if len(stockIndex) == 0 {
+    stockIndex = "S&P 500"
+  }
 
   counts, err := client.histogramSearch(searchTerm, stockIndex)
   if err != nil {
     http.Error(w, err.Error(), http.StatusInternalServerError)
+    return
   }
 
   for _, field := range fields {
@@ -89,16 +102,22 @@ func httpserver(w http.ResponseWriter, r *http.Request) {
   err = bar.Render(&buf)
   if err != nil {
     http.Error(w, err.Error(), http.StatusInternalServerError)
+    return
   }
 
-  hits, err := client.highlightSearch(searchTerm, stockIndex, "Item1")
+  tableData.Hits, err = client.highlightSearch(searchTerm, stockIndex, "Item1")
   if err != nil {
     http.Error(w, err.Error(), http.StatusInternalServerError)
+    return
   }
 
-  err = templates.ExecuteTemplate(&buf, "table.html", hits)
+  tableData.Years = years[:]
+  tableData.Fields = fields[:]
+
+  err = templates.ExecuteTemplate(&buf, "table.html", tableData)
   if err != nil {
     http.Error(w, err.Error(), http.StatusInternalServerError)
+    return
   }
    
   fmt.Fprintf(w, "%s", buf.String())
