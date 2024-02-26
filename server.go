@@ -4,6 +4,7 @@ import (
   "os"
   "io"
   "fmt"
+  "strconv"
   "bytes"
   "net/http"
   "html/template"
@@ -12,6 +13,7 @@ import (
   chartrender "github.com/go-echarts/go-echarts/v2/render"
 )
 
+const pageSz = 15 // rows in table to display
 var client *ElasticClient
 var templates = template.Must(template.ParseFiles("./html/table.html"))
 var fields = [2]string {"Item1","Item1a"}
@@ -54,6 +56,16 @@ func (r *embedRender) Render(w io.Writer) error {
   return err
 }
 
+// helper functions to check request parameters and supply defaults
+func paramStr(r *http.Request, name string, def string) string {
+  var param string
+  param = r.FormValue(name)
+  if param == "" {
+    return def
+  }
+  return param
+}
+
 func httpserver(w http.ResponseWriter, r *http.Request) {
   var (
     buf bytes.Buffer
@@ -62,9 +74,15 @@ func httpserver(w http.ResponseWriter, r *http.Request) {
   barData := make(map[string]([]opts.BarData))
 
   searchTerm := r.FormValue("searchterm")
-  stockIndex := r.FormValue("stockindex")
-  if len(stockIndex) == 0 {
-    stockIndex = "S&P 500"
+  stockIndex := paramStr(r, "stockindex", "S&P 500")
+  section    := paramStr(r, "section", "Item1")
+  year       := paramStr(r, "year", "2023")
+  pageStr   := paramStr(r, "p", "0")
+
+  page, err := strconv.Atoi(pageStr)
+  if err != nil || page < 0 {
+    http.Error(w, "invalid page parameter", http.StatusInternalServerError)
+    return
   }
 
   counts, err := client.histogramSearch(searchTerm, stockIndex)
@@ -105,7 +123,7 @@ func httpserver(w http.ResponseWriter, r *http.Request) {
     return
   }
 
-  tableData.Hits, err = client.highlightSearch(searchTerm, stockIndex, "Item1")
+  tableData.Hits, err = client.highlightSearch(searchTerm, stockIndex, section, year, page, pageSz)
   if err != nil {
     http.Error(w, err.Error(), http.StatusInternalServerError)
     return
@@ -123,9 +141,46 @@ func httpserver(w http.ResponseWriter, r *http.Request) {
   fmt.Fprintf(w, "%s", buf.String())
 }
 
+func updateTable(w http.ResponseWriter, r *http.Request) {
+  var (
+    buf bytes.Buffer
+    tableData TableData
+    err error
+  )
+
+  searchTerm := r.FormValue("searchterm")
+  stockIndex := paramStr(r, "stockindex", "S&P 500")
+  section    := paramStr(r, "section", "Item1")
+  year       := paramStr(r, "year", "2023")
+  pageStr   := paramStr(r, "p", "0")
+
+  page, err := strconv.Atoi(pageStr)
+  if err != nil || page < 0 {
+    http.Error(w, "invalid page parameter", http.StatusInternalServerError)
+    return
+  }
+
+  tableData.Hits, err = client.highlightSearch(searchTerm, stockIndex, section, year, page, pageSz)
+  if err != nil {
+    http.Error(w, err.Error(), http.StatusInternalServerError)
+    return
+  }
+
+  tableData.Years = years[:]
+  tableData.Fields = fields[:]
+
+  err = templates.ExecuteTemplate(&buf, "hits", tableData)
+  if err != nil {
+    http.Error(w, err.Error(), http.StatusInternalServerError)
+    return
+  }
+   
+  fmt.Fprintf(w, "%s", buf.String())
+}
+
 func main() {
   client = NewElasticClient()
 	http.HandleFunc("/", httpserver)
-	//http.HandleFunc("/search", httpserver)
+	http.HandleFunc("/filter", updateTable)
 	http.ListenAndServe(":8081", nil)
 }

@@ -1,0 +1,114 @@
+{{block "hits" .}}
+<div class="searchresults" id="searchresults">
+  <table>
+    <tr>
+      <th><select id="year" name="year" onchange="selectYear()">
+          <option value="">Year</option>
+          {{ range .Years }}
+            <option value="{{.}}">{{.}}</option>
+          {{ end }}
+      </select></th>
+      <th></th>
+      <th></th>
+      <th><select id="section" name="section" onchange="selectSection()">
+          <option value="">Section</option>
+          {{ range .Fields }}
+            <option value="{{.}}">{{.}}</option>
+          {{ end }}
+      </select></th>
+    </tr>
+    <tr>
+      <th>Filed</th>
+      <th>Ticker</th>
+      <th>Company</th>
+      <th>Excerpt</th>
+    </tr>
+      {{ range .Hits }}
+      <tr>
+       <td>{{.Filed}}</td>
+       <td>{{.Ticker}}</td>
+       <td>{{.Name}}</td>
+       <td>{{.Excerpt}}</td>
+      </tr>
+      {{ end }}
+  </table>
+</div>
+{{ end }}
+
+<script>
+  // keep previous query parameters
+  const urlParams = new URLSearchParams(window.location.search);
+  const term = urlParams.get("searchterm");
+  const index = urlParams.get("stockindex");
+  document.getElementsByName("searchterm")[0].value=term;
+  if (index.length > 0) {
+    document.getElementsByName("stockindex")[0].value=index;
+  }
+
+  // update table if select year
+  function selectYear() {
+      var year = document.getElementById("year").value;
+      if (year == "Year") {
+          return;
+        }
+      var section = document.getElementById("section").value;
+      if (section == "Section") {
+          section = "Item1";
+        }
+      updateTable(section, year);
+    }
+
+  // update table if select section
+  function selectSection() {
+      var section = document.getElementById("section").value;
+      if (section == "Section") {
+          return;
+        }
+      var year = document.getElementById("year").value;
+      if (year == "Year") {
+          year = "2023";
+        }
+      updateTable(section, section);
+    }
+
+  function updateTable(section, year) {
+      var e = document.getElementById("searchresults");
+      var xhr = new XMLHttpRequest();
+      xhr.onreadystatechange = function() {
+          if (xhr.readyState == 4 && xhr.status == 200) {
+              e.outerHTML = xhr.responseText;
+          }
+      }
+      path = "/filter?stockindex=" + encodeURIComponent(index) +
+             "&searchterm=" + encodeURIComponent(term) +
+             "&section=" + encodeURIComponent(section) +
+             "&year=" + encodeURIComponent(year);
+      console.log(path);
+      xhr.open("GET", path); 
+      try {xhr.send(); } catch (err) { console.log("ajax error") }
+  }
+</script>
+
+<style>
+  .container {margin-top:30px; display: flex;justify-content: center;align-items: center;}
+
+  table {
+    font-family: arial, sans-serif;
+    border-collapse: collapse;
+    width: 80%;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  td, th {
+    border: 1px solid #dddddd;
+    text-align: left;
+    padding: 8px;
+  }
+
+  tr:nth-child(even) {
+    background-color: #dddddd;
+  }
+</style>
+</body>
+</html>

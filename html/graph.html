@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>SEC Search</title>
+</head>
+
+<body>
+<div class="container">
+  <form action="/search">
+    <select id="stockindex" name="stockindex">
+      <option value="S&P 500">S&amp;P 500</option>
+      <option value="RUSSELL 2000">RUSSELL 2000</option>
+    </select>
+    <input type="text" id="searchterm" name="searchterm" placeholder="Search Term">
+    <input type="submit" value="Search"/>
+  </form>
+</div>
+<div class="container">
+    <div class="item" id="{{ .ChartID }}" style="width:{{ .Initialization.Width }};height:{{ .Initialization.Height }};"></div>
+</div>
+{{- range .JSAssets.Values }}
+   <script src="{{ . }}"></script>
+{{- end }}
+<script type="text/javascript">
+  "use strict";
+  let goecharts_{{ .ChartID | safeJS }} = echarts.init(document.getElementById('{{ .ChartID | safeJS }}'), "{{ .Theme }}");
+  let option_{{ .ChartID | safeJS }} = {{ .JSON }};
+  goecharts_{{ .ChartID | safeJS }}.setOption(option_{{ .ChartID | safeJS }});
+  {{- range .JSFunctions.Fns }}
+  {{ . | safeJS }}
+  {{- end }}
+
+  // bar clicks
+  goecharts_{{ .ChartID | safeJS }}.on("click", function(params) {
+      let section = params.seriesName;
+      let year = params.name;
+      updateTable(section, year);
+      document.getElementsByName("year")[0].value=year;
+      document.getElementsByName("section")[0].value=section;
+    });
+
+</script>

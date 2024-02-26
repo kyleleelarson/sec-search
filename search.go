@@ -7,11 +7,14 @@ import (
   "fmt"
   "encoding/json"
   "strings"
+  "strconv"
   "html/template"
   "github.com/elastic/go-elasticsearch/v8"
 )
 
 const indexName = "filings"
+const yearUpperBound = 2024
+const yearLowerBound = 1993
 
 var histogramQuery = `{ 
   "size": 0,
@@ -42,10 +45,12 @@ var highlightQuery = `{
   "_source": ["Ticker", "Name", "StockIndex", "Filed"],
   "query": { "bool": { 
     "must": [{ "match_phrase": { "%s": "%s" }}],
-    "filter": [{ "bool": { "must": [{ "term": { "StockIndex.keyword": "%s" }}]}}]}},
+    "filter": [{ "bool": { "must": [{ "term": { "StockIndex.keyword": "%s" }},
+                                    { "range": { "Filed": { "gt": "%s", "lt": "%s"}}}]}}]}},
   "highlight": { "fragment_size": 200, "fields": { "Item1": {}, "Item1a": {} } },
   "sort": [ { "Filed": { "order": "desc", "unmapped_type": "date" } } ],
-  "size": 30
+  "from": %d,
+  "size": %d
 }`
 
 type HighlightResult struct {
@@ -135,8 +140,16 @@ func (client *ElasticClient) histogramSearch(searchTerm, stockIndex string) (
   return counts, err
 }
 
-func (client *ElasticClient) highlightSearch(searchTerm, stockIndex, field string) (
-  [](map[string]any), error) {
+func processYear(year string) (string, string) {
+  i, err := strconv.Atoi(year)
+  if err != nil || i < yearLowerBound || i > yearUpperBound {
+    return strconv.Itoa(yearLowerBound), strconv.Itoa(yearUpperBound)
+  }
+  return strconv.Itoa(i-1), strconv.Itoa(i+1)
+}
+
+func (client *ElasticClient) highlightSearch(searchTerm, stockIndex, field, year string, 
+  page, size int) ([](map[string]any), error) {
 
   var (
     hits [](map[string]any)
@@ -144,10 +157,13 @@ func (client *ElasticClient) highlightSearch(searchTerm, stockIndex, field strin
     highlightResult HighlightResult
   )
 
+  yearLower, yearUpper := processYear(year)
+
   res, err := client.es.Search(
     client.es.Search.WithIndex(indexName),
     client.es.Search.WithBody(strings.NewReader(
-      fmt.Sprintf(highlightQuery, field, searchTerm, stockIndex))),
+      fmt.Sprintf(highlightQuery, field, searchTerm, stockIndex, yearLower, yearUpper, 
+      page*size, size))),
   )
   if err != nil {
     return hits, err
