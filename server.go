@@ -4,27 +4,41 @@ import (
   "os"
   "io"
   "fmt"
-  "strconv"
+  "math"
   "bytes"
+  "strconv"
   "net/http"
   "html/template"
-	"github.com/go-echarts/go-echarts/v2/charts"
 	"github.com/go-echarts/go-echarts/v2/opts"
+	"github.com/go-echarts/go-echarts/v2/charts"
   chartrender "github.com/go-echarts/go-echarts/v2/render"
 )
 
 const pageSz = 15 // rows in table to display
-var client *ElasticClient
+var es *ElasticClient
 var templates = template.Must(template.ParseFiles("./html/table.html"))
-var fields = [2]string {"Item1","Item1a"}
+var sections = [2]string {"Item1","Item1a"}
 var years = [20]string {"2004","2005","2006","2007","2008","2009","2010","2011","2012","2013",
                         "2014","2015","2016","2017","2018","2019","2020","2021","2022","2023"}
-type TableData struct {
-  Years []string
-  Fields []string
-  Hits [](map[string]any)
+
+// struct of query string parameters to pass around                        
+type Parameters struct {
+  searchTerm string   
+  stockIndex string   
+  section    string   
+  year       string   
+  page       int   
 }
 
+type TableData struct {
+  Page  int
+  Pages int
+  Year    string
+  Section string
+  Years    []string
+  Sections []string
+  Hits [](map[string]any)
+}
 
 type embedRender struct {
   c      interface{}
@@ -56,118 +70,49 @@ func (r *embedRender) Render(w io.Writer) error {
   return err
 }
 
-// helper functions to check request parameters and supply defaults
-func paramStr(r *http.Request, name string, def string) string {
-  var param string
-  param = r.FormValue(name)
-  if param == "" {
-    return def
-  }
-  return param
-}
-
-func httpserver(w http.ResponseWriter, r *http.Request) {
+func prepareTable(p *Parameters) (*TableData, error) {
   var (
-    buf bytes.Buffer
-    tableData TableData
-  )
-  barData := make(map[string]([]opts.BarData))
-
-  searchTerm := r.FormValue("searchterm")
-  stockIndex := paramStr(r, "stockindex", "S&P 500")
-  section    := paramStr(r, "section", "Item1")
-  year       := paramStr(r, "year", "2023")
-  pageStr   := paramStr(r, "p", "0")
-
-  page, err := strconv.Atoi(pageStr)
-  if err != nil || page < 0 {
-    http.Error(w, "invalid page parameter", http.StatusInternalServerError)
-    return
-  }
-
-  counts, err := client.histogramSearch(searchTerm, stockIndex)
-  if err != nil {
-    http.Error(w, err.Error(), http.StatusInternalServerError)
-    return
-  }
-
-  for _, field := range fields {
-    var barValues []opts.BarData
-    for _, year := range years {
-      count := counts[field][year] // zero if not in map
-      barValues = append(barValues, opts.BarData{Value: count})
-    }
-      barData[field] = barValues
-  }
-
-	// create a new bar instance
-	bar := charts.NewBar()
-  bar.Renderer = NewEmbedRender(bar, bar.Validate)
-	// set some global options like Title/Legend/ToolTip or anything else
-	bar.SetGlobalOptions(charts.WithTitleOpts(opts.Title{
-		Title:    searchTerm,
-		Subtitle: stockIndex,
-	}))
-
-	// Put data into instance
-	bar.SetXAxis(years).
-		AddSeries(fields[0], barData[fields[0]]).
-		AddSeries(fields[1], barData[fields[1]]).
-    SetSeriesOptions(charts.WithBarChartOpts(opts.BarChart{
-		  Stack: "stackA",
-		}))
-
-  err = bar.Render(&buf)
-  if err != nil {
-    http.Error(w, err.Error(), http.StatusInternalServerError)
-    return
-  }
-
-  tableData.Hits, err = client.highlightSearch(searchTerm, stockIndex, section, year, page, pageSz)
-  if err != nil {
-    http.Error(w, err.Error(), http.StatusInternalServerError)
-    return
-  }
-
-  tableData.Years = years[:]
-  tableData.Fields = fields[:]
-
-  err = templates.ExecuteTemplate(&buf, "table.html", tableData)
-  if err != nil {
-    http.Error(w, err.Error(), http.StatusInternalServerError)
-    return
-  }
-   
-  fmt.Fprintf(w, "%s", buf.String())
-}
-
-func updateTable(w http.ResponseWriter, r *http.Request) {
-  var (
-    buf bytes.Buffer
+    total int
     tableData TableData
     err error
   )
 
-  searchTerm := r.FormValue("searchterm")
-  stockIndex := paramStr(r, "stockindex", "S&P 500")
-  section    := paramStr(r, "section", "Item1")
-  year       := paramStr(r, "year", "2023")
-  pageStr   := paramStr(r, "p", "0")
-
-  page, err := strconv.Atoi(pageStr)
-  if err != nil || page < 0 {
-    http.Error(w, "invalid page parameter", http.StatusInternalServerError)
-    return
+  total, tableData.Hits, err = es.highlightSearch(p.searchTerm, p.stockIndex, 
+                                                            p.section, p.year, p.page, pageSz)
+  if err != nil {
+    return &tableData, err
   }
 
-  tableData.Hits, err = client.highlightSearch(searchTerm, stockIndex, section, year, page, pageSz)
+  tableData.Page = p.page
+  tableData.Pages = int(math.Ceil(float64(total) / float64(pageSz)))
+  tableData.Year = p.year
+  tableData.Section = p.section
+  for _, y := range years {
+    if y != p.year {
+      tableData.Years = append(tableData.Years, y)
+    }
+  }
+  for _, s := range sections {
+    if s != p.section {
+      tableData.Sections = append(tableData.Sections, s)
+    }
+  }
+
+  return &tableData, err
+}
+
+func updateTable(w http.ResponseWriter, r *http.Request, p *Parameters) {
+  var (
+    buf bytes.Buffer
+    tableData *TableData
+    err error
+  )
+
+  tableData, err = prepareTable(p)
   if err != nil {
     http.Error(w, err.Error(), http.StatusInternalServerError)
     return
   }
-
-  tableData.Years = years[:]
-  tableData.Fields = fields[:]
 
   err = templates.ExecuteTemplate(&buf, "hits", tableData)
   if err != nil {
@@ -178,9 +123,103 @@ func updateTable(w http.ResponseWriter, r *http.Request) {
   fmt.Fprintf(w, "%s", buf.String())
 }
 
+func httpserver(w http.ResponseWriter, r *http.Request, p *Parameters) {
+  var (
+    buf bytes.Buffer
+    tableData *TableData
+    err error
+  )
+  barData := make(map[string]([]opts.BarData))
+
+  counts, err := es.histogramSearch(p.searchTerm, p.stockIndex)
+  if err != nil {
+    http.Error(w, err.Error(), http.StatusInternalServerError)
+    return
+  }
+
+  for _, section := range sections {
+    var barValues []opts.BarData
+    for _, year := range years {
+      count := counts[section][year] // zero if not in map
+      barValues = append(barValues, opts.BarData{Value: count})
+    }
+      barData[section] = barValues
+  }
+
+	// create a new bar instance
+	bar := charts.NewBar()
+  bar.Renderer = NewEmbedRender(bar, bar.Validate)
+	// set some global options like Title/Legend/ToolTip or anything else
+	bar.SetGlobalOptions(charts.WithTitleOpts(opts.Title{
+		Title:    p.searchTerm,
+		Subtitle: p.stockIndex,
+	}))
+
+	// Put data into instance
+	bar.SetXAxis(years).
+		AddSeries(sections[0], barData[sections[0]]).
+		AddSeries(sections[1], barData[sections[1]]).
+    SetSeriesOptions(charts.WithBarChartOpts(opts.BarChart{
+		  Stack: "stackA",
+		}))
+
+  err = bar.Render(&buf)
+  if err != nil {
+    http.Error(w, err.Error(), http.StatusInternalServerError)
+    return
+  }
+
+  tableData, err = prepareTable(p)
+  if err != nil {
+    http.Error(w, err.Error(), http.StatusInternalServerError)
+    return
+  }
+
+  err = templates.ExecuteTemplate(&buf, "table.html", tableData)
+  if err != nil {
+    http.Error(w, err.Error(), http.StatusInternalServerError)
+    return
+  }
+   
+  fmt.Fprintf(w, "%s", buf.String())
+}
+
+// helper function to check request parameters and supply defaults
+func paramStr(r *http.Request, name string, def string) string {
+  var param string
+  param = r.FormValue(name)
+  if param == "" {
+    return def
+  }
+  return param
+}
+
+func processParameters(fn func (http.ResponseWriter, *http.Request, *Parameters)) http.HandlerFunc {
+  return func(w http.ResponseWriter, r *http.Request) {
+    var (
+      p Parameters
+      err error
+    )
+
+    p.searchTerm = r.FormValue("searchterm")
+    p.stockIndex = paramStr(r, "stockindex", "S&P 500")
+    p.section    = paramStr(r, "section", "Item1")
+    p.year       = paramStr(r, "year", "2023")
+    pageStr     := paramStr(r, "p", "1")
+
+    p.page, err = strconv.Atoi(pageStr)
+    if err != nil || p.page < 1 {
+      http.Error(w, "invalid page parameter", http.StatusInternalServerError)
+      return
+    }
+
+    fn(w, r, &p);
+  }
+}
+
 func main() {
-  client = NewElasticClient()
-	http.HandleFunc("/", httpserver)
-	http.HandleFunc("/filter", updateTable)
+  es = NewElasticClient()
+	http.HandleFunc("/", processParameters(httpserver))
+	http.HandleFunc("/filter", processParameters(updateTable))
 	http.ListenAndServe(":8081", nil)
 }

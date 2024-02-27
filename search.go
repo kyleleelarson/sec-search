@@ -105,12 +105,12 @@ func (client *ElasticClient) histogramSearch(searchTerm, stockIndex string) (
   )
   counts := make(map[string](map[string]int))
 
-  for _, field := range fields {
+  for _, section := range sections {
     m := make(map[string]int)
     res, err := client.es.Search(
       client.es.Search.WithIndex(indexName),
       client.es.Search.WithBody(strings.NewReader(
-        fmt.Sprintf(histogramQuery, field, searchTerm, stockIndex))),
+        fmt.Sprintf(histogramQuery, section, searchTerm, stockIndex))),
     )
     if err != nil {
       return counts, err
@@ -135,7 +135,7 @@ func (client *ElasticClient) histogramSearch(searchTerm, stockIndex string) (
       count := int(b.Count)
       m[year] = count
     }
-  counts[field] = m
+  counts[section] = m
   }
   return counts, err
 }
@@ -145,13 +145,14 @@ func processYear(year string) (string, string) {
   if err != nil || i < yearLowerBound || i > yearUpperBound {
     return strconv.Itoa(yearLowerBound), strconv.Itoa(yearUpperBound)
   }
-  return strconv.Itoa(i-1), strconv.Itoa(i+1)
+  return strconv.Itoa(i-1) + "-12-31", strconv.Itoa(i+1) + "-01-01"
 }
 
-func (client *ElasticClient) highlightSearch(searchTerm, stockIndex, field, year string, 
-  page, size int) ([](map[string]any), error) {
+func (client *ElasticClient) highlightSearch(searchTerm, stockIndex, section, year string, 
+  page, size int) (int, [](map[string]any), error) {
 
   var (
+    total = 0
     hits [](map[string]any)
     err error
     highlightResult HighlightResult
@@ -162,38 +163,40 @@ func (client *ElasticClient) highlightSearch(searchTerm, stockIndex, field, year
   res, err := client.es.Search(
     client.es.Search.WithIndex(indexName),
     client.es.Search.WithBody(strings.NewReader(
-      fmt.Sprintf(highlightQuery, field, searchTerm, stockIndex, yearLower, yearUpper, 
-      page*size, size))),
+      fmt.Sprintf(highlightQuery, section, searchTerm, stockIndex, yearLower, yearUpper, 
+      (page-1) * size, size))),
   )
   if err != nil {
-    return hits, err
+    return total, hits, err
   }
   defer res.Body.Close()
   if res.IsError() || res.Status() != "200 OK" {
     err = fmt.Errorf("res.IsError or status not 200 OK")
-      return hits, err
+      return total, hits, err
   }
 
   body, err := io.ReadAll(res.Body)
   if err != nil {
     log.Fatalf("Error reading the response body: %s", err)
-    return hits, err
+    return total, hits, err
   }
   if err = json.Unmarshal(body, &highlightResult); err != nil {
-    return hits, err
+    return total, hits, err
   }
+
+  total = highlightResult.Hits.Total.Num
 
   for _, hit := range highlightResult.Hits.Values {
     m := make(map[string]any)
     m["Filed"] = hit.Source.Filed
     m["Ticker"] = hit.Source.Ticker
     m["Name"] = hit.Source.Name
-    if field == "Item1" {
+    if section == "Item1" {
       m["Excerpt"] = hit.Highlights.Item1[0]
     } else {
       m["Excerpt"] = hit.Highlights.Item1a[0]
     }
     hits = append(hits, m)
   }
-  return hits, err
+  return total, hits, err
 }

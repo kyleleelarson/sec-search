@@ -2,17 +2,17 @@
 <div class="searchresults" id="searchresults">
   <table>
     <tr>
-      <th><select id="year" name="year" onchange="selectYear()">
-          <option value="">Year</option>
+      <th><select id="year" name="year" onchange="selectAction()">
+          <option value="{{.Year}}">{{.Year}}</option>
           {{ range .Years }}
             <option value="{{.}}">{{.}}</option>
           {{ end }}
       </select></th>
       <th></th>
       <th></th>
-      <th><select id="section" name="section" onchange="selectSection()">
-          <option value="">Section</option>
-          {{ range .Fields }}
+      <th><select id="section" name="section" onchange="selectAction()">
+          <option value="{{.Section}}">{{.Section}}</option>
+          {{ range .Sections }}
             <option value="{{.}}">{{.}}</option>
           {{ end }}
       </select></th>
@@ -32,6 +32,18 @@
       </tr>
       {{ end }}
   </table>
+  <div class="page">
+    {{if gt .Page 1}}
+      <button class="button" id="previous" onclick="pageAction(-1)">&laquo; Previous</button>
+    {{end}}
+    {{if gt .Pages 0}}
+      <span >Page {{.Page}} of {{.Pages}}.</span>
+      <input type="hidden" id="pageNum" value="{{.Page}}" />
+    {{end}}
+    {{if lt .Page .Pages}}
+      <button class="button" id="next" onclick="pageAction(1)">Next &raquo;</button>
+    {{end}}
+  </div>
 </div>
 {{ end }}
 
@@ -45,33 +57,25 @@
     document.getElementsByName("stockindex")[0].value=index;
   }
 
-  // update table if select year
-  function selectYear() {
-      var year = document.getElementById("year").value;
-      if (year == "Year") {
+  // update page
+  function pageAction(i) {
+      var y = document.getElementById("year").value;
+      var s = document.getElementById("section").value;
+      var p = Number(document.getElementById("pageNum").value) + i;
+      if (p < 1) {
           return;
         }
-      var section = document.getElementById("section").value;
-      if (section == "Section") {
-          section = "Item1";
-        }
-      updateTable(section, year);
+      updateTable(s, y, p);
     }
 
-  // update table if select section
-  function selectSection() {
-      var section = document.getElementById("section").value;
-      if (section == "Section") {
-          return;
-        }
-      var year = document.getElementById("year").value;
-      if (year == "Year") {
-          year = "2023";
-        }
-      updateTable(section, section);
+  // update table if select year or section
+  function selectAction() {
+      var y = document.getElementById("year").value;
+      var s = document.getElementById("section").value;
+      updateTable(s, y, 1);
     }
 
-  function updateTable(section, year) {
+  function updateTable(s, y, p) {
       var e = document.getElementById("searchresults");
       var xhr = new XMLHttpRequest();
       xhr.onreadystatechange = function() {
@@ -81,9 +85,9 @@
       }
       path = "/filter?stockindex=" + encodeURIComponent(index) +
              "&searchterm=" + encodeURIComponent(term) +
-             "&section=" + encodeURIComponent(section) +
-             "&year=" + encodeURIComponent(year);
-      console.log(path);
+             "&section=" + encodeURIComponent(s) +
+             "&year=" + encodeURIComponent(y) + 
+             "&p=" + encodeURIComponent(p);
       xhr.open("GET", path); 
       try {xhr.send(); } catch (err) { console.log("ajax error") }
   }
@@ -91,6 +95,8 @@
 
 <style>
   .container {margin-top:30px; display: flex;justify-content: center;align-items: center;}
+  .page {margin-top:10px; display: flex;justify-content: center;align-items: center;}
+  .button {margin-right:10px; margin-left:10px;}
 
   table {
     font-family: arial, sans-serif;

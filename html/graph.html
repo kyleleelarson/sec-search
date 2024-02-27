@@ -33,11 +33,9 @@
 
   // bar clicks
   goecharts_{{ .ChartID | safeJS }}.on("click", function(params) {
-      let section = params.seriesName;
-      let year = params.name;
-      updateTable(section, year);
-      document.getElementsByName("year")[0].value=year;
-      document.getElementsByName("section")[0].value=section;
+      let s = params.seriesName;
+      let y = params.name;
+      updateTable(s, y, 1);
     });
 
 </script>
