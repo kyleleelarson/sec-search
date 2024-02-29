@@ -1,17 +1,12 @@
 package main
 
 import (
-  "os"
-  "io"
   "fmt"
   "math"
   "bytes"
   "strconv"
   "net/http"
   "html/template"
-	"github.com/go-echarts/go-echarts/v2/opts"
-	"github.com/go-echarts/go-echarts/v2/charts"
-  chartrender "github.com/go-echarts/go-echarts/v2/render"
 )
 
 const pageSz = 15 // rows in table to display
@@ -38,36 +33,6 @@ type TableData struct {
   Years    []string
   Sections []string
   Hits [](map[string]any)
-}
-
-type embedRender struct {
-  c      interface{}
-  before []func()
-}
-
-func NewEmbedRender(c interface{}, before ...func()) chartrender.Renderer {
-  return &embedRender{c: c, before: before}
-}
-
-func (r *embedRender) Render(w io.Writer) error {
-  dat, err := os.ReadFile("html/graph.html")
-  baseTpl := string(dat)
-  const tplName = "chart"
-  for _, fn := range r.before {
-    fn()
-  }
-
-  tpl := template.
-    Must(template.New(tplName). // must is a wrapper for a func returning a template, panics if err
-      Funcs(template.FuncMap{
-        "safeJS": func(s interface{}) template.JS {
-          return template.JS(fmt.Sprint(s)) // concatenates and casts to type JS
-        },
-      }).
-      Parse(baseTpl),
-    )
-  err = tpl.ExecuteTemplate(w, tplName, r.c)
-  return err
 }
 
 func prepareTable(p *Parameters) (*TableData, error) {
@@ -129,7 +94,6 @@ func httpserver(w http.ResponseWriter, r *http.Request, p *Parameters) {
     tableData *TableData
     err error
   )
-  barData := make(map[string]([]opts.BarData))
 
   counts, err := es.histogramSearch(p.searchTerm, p.stockIndex)
   if err != nil {
@@ -137,33 +101,7 @@ func httpserver(w http.ResponseWriter, r *http.Request, p *Parameters) {
     return
   }
 
-  for _, section := range sections {
-    var barValues []opts.BarData
-    for _, year := range years {
-      count := counts[section][year] // zero if not in map
-      barValues = append(barValues, opts.BarData{Value: count})
-    }
-      barData[section] = barValues
-  }
-
-	// create a new bar instance
-	bar := charts.NewBar()
-  bar.Renderer = NewEmbedRender(bar, bar.Validate)
-	// set some global options like Title/Legend/ToolTip or anything else
-	bar.SetGlobalOptions(charts.WithTitleOpts(opts.Title{
-		Title:    p.searchTerm,
-		Subtitle: p.stockIndex,
-	}))
-
-	// Put data into instance
-	bar.SetXAxis(years).
-		AddSeries(sections[0], barData[sections[0]]).
-		AddSeries(sections[1], barData[sections[1]]).
-    SetSeriesOptions(charts.WithBarChartOpts(opts.BarChart{
-		  Stack: "stackA",
-		}))
-
-  err = bar.Render(&buf)
+  err = renderGraph(counts, p, &buf)
   if err != nil {
     http.Error(w, err.Error(), http.StatusInternalServerError)
     return
