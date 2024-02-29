@@ -13,8 +13,6 @@ import (
 )
 
 const indexName = "filings"
-const yearUpperBound = 2024
-const yearLowerBound = 1993
 
 var histogramQuery = `{ 
   "size": 0,
@@ -143,7 +141,7 @@ func (client *ElasticClient) histogramSearch(searchTerm, stockIndex string) (
 func processYear(year string) (string, string) {
   i, err := strconv.Atoi(year)
   if err != nil || i < yearLowerBound || i > yearUpperBound {
-    return strconv.Itoa(yearLowerBound), strconv.Itoa(yearUpperBound)
+    return strconv.Itoa(yearLowerBound) + "-12-31", strconv.Itoa(yearUpperBound) + "-01-01"
   }
   return strconv.Itoa(i-1) + "-12-31", strconv.Itoa(i+1) + "-01-01"
 }

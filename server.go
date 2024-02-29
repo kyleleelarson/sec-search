@@ -15,6 +15,12 @@ var templates = template.Must(template.ParseFiles("./html/table.html"))
 var sections = [2]string {"Item1","Item1a"}
 var years = [20]string {"2004","2005","2006","2007","2008","2009","2010","2011","2012","2013",
                         "2014","2015","2016","2017","2018","2019","2020","2021","2022","2023"}
+const yearUpperBound = 2024
+const yearLowerBound = 1993
+const defaultYear       = "2023"
+const defaultStockIndex = "S&P 500"
+const defaultSection    = "Item1"
+const defaultPage       = "1"
 
 // struct of query string parameters to pass around                        
 type Parameters struct {
@@ -140,14 +146,14 @@ func processParameters(fn func (http.ResponseWriter, *http.Request, *Parameters)
     )
 
     p.searchTerm = r.FormValue("searchterm")
-    p.stockIndex = paramStr(r, "stockindex", "S&P 500")
-    p.section    = paramStr(r, "section", "Item1")
-    p.year       = paramStr(r, "year", "2023")
-    pageStr     := paramStr(r, "p", "1")
+    p.stockIndex = paramStr(r, "stockindex", defaultStockIndex)
+    p.section    = paramStr(r, "section",    defaultSection)
+    p.year       = paramStr(r, "year",       defaultYear)
+    pageStr     := paramStr(r, "p",          defaultPage)
 
     p.page, err = strconv.Atoi(pageStr)
     if err != nil || p.page < 1 {
-      http.Error(w, "invalid page parameter", http.StatusInternalServerError)
+      http.Error(w, "invalid page parameter", http.StatusBadRequest)
       return
     }
 
