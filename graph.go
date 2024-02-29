@@ -7,6 +7,7 @@ import (
   "bytes"
   "html/template"
 	"github.com/go-echarts/go-echarts/v2/opts"
+	"github.com/go-echarts/go-echarts/v2/types"
 	"github.com/go-echarts/go-echarts/v2/charts"
   chartrender "github.com/go-echarts/go-echarts/v2/render"
 )
@@ -60,7 +61,9 @@ func renderGraph(counts map[string](map[string]int), p *Parameters, buf *bytes.B
 	bar := charts.NewBar()
   bar.Renderer = NewEmbedRender(bar, bar.Validate)
 	// set some global options like Title/Legend/ToolTip or anything else
-	bar.SetGlobalOptions(charts.WithTitleOpts(opts.Title{
+	bar.SetGlobalOptions(
+		charts.WithInitializationOpts(opts.Initialization{Theme: types.ThemeWesteros}),
+    charts.WithTitleOpts(opts.Title{
 		Title:    p.searchTerm,
 		Subtitle: p.stockIndex,
 	}))
