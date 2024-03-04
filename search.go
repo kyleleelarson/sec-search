@@ -120,7 +120,7 @@ func (client *ElasticClient) histogramSearch(searchTerm, stockIndex string) (
     }
     defer res.Body.Close()
     if res.IsError() || res.Status() != "200 OK" {
-      err = fmt.Errorf("res.IsError: %s, or status not 200 OK", res.String())
+      err = fmt.Errorf("status not 200 OK or res.IsError: %s", res.String())
       return counts, err
     }
 
@@ -173,7 +173,7 @@ func (client *ElasticClient) highlightSearch(searchTerm, stockIndex, section, ye
   }
   defer res.Body.Close()
   if res.IsError() || res.Status() != "200 OK" {
-    err = fmt.Errorf("res.IsError: %s, or status not 200 OK", res.String())
+    err = fmt.Errorf("status not 200 OK or res.IsError: %s", res.String())
     return total, hits, err
   }
 

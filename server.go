@@ -83,14 +83,16 @@ func updateTable(w http.ResponseWriter, r *http.Request, p *Parameters) {
   tableData, err = prepareTable(p)
   if err != nil {
     http.Error(w, "prepare table error", http.StatusInternalServerError)
-    log.Printf("in update table, prepare table error: %s\n", err.Error())
+    log.Printf("in update table with search term '%s', prepare table error: %s\n", 
+      p.searchTerm, err.Error())
     return
   }
 
   err = templates.ExecuteTemplate(&buf, "hits", tableData)
   if err != nil {
     http.Error(w, "template error", http.StatusInternalServerError)
-    log.Printf("in update table, execute template error: %s\n", err.Error())
+    log.Printf("in update table with search term '%s', execute template error: %s\n",
+      p.searchTerm, err.Error())
     return
   }
    
@@ -107,28 +109,32 @@ func httpserver(w http.ResponseWriter, r *http.Request, p *Parameters) {
   counts, err := es.histogramSearch(p.searchTerm, p.stockIndex)
   if err != nil {
     http.Error(w, "histogram search error", http.StatusInternalServerError)
-    log.Printf("in httpserver, histogram search error: %s\n", err.Error())
+    log.Printf("in httpserver with search term '%s', histogram search error: %s\n",
+      p.searchTerm, err.Error())
     return
   }
 
   err = renderGraph(counts, p, &buf)
   if err != nil {
     http.Error(w, "graph render error", http.StatusInternalServerError)
-    log.Printf("in httpserver, render graph error: %s\n", err.Error())
+    log.Printf("in httpserver with search term '%s', render graph error: %s\n",
+      p.searchTerm, err.Error())
     return
   }
 
   tableData, err = prepareTable(p)
   if err != nil {
     http.Error(w, "prepare table error", http.StatusInternalServerError)
-    log.Printf("in httpserver, prepare table error: %s\n", err.Error())
+    log.Printf("in httpserver with search term '%s', prepare table error: %s\n",
+      p.searchTerm, err.Error())
     return
   }
 
   err = templates.ExecuteTemplate(&buf, "table.html", tableData)
   if err != nil {
     http.Error(w, "template error", http.StatusInternalServerError)
-    log.Printf("in httpserver, execute template error: %s\n", err.Error())
+    log.Printf("in httpserver with search term '%s', execute template error: %s\n",
+      p.searchTerm, err.Error())
     return
   }
    
