@@ -18,7 +18,7 @@ var histogramQuery = `{
   "size": 0,
   "query": { "bool": { 
     "must": [{ "match_phrase": { "%s": "%s" }}],
-    "filter": [{ "bool": { "must": [{ "term": { "StockIndex.keyword": "%s" }}]}}]}},
+    "filter": [{ "term": { "StockIndex.keyword": "%s" }}]}},
   "aggs": { "year": { "date_histogram": { "field": "Filed", "calendar_interval": "1y"}}}
 }`
 
@@ -43,8 +43,8 @@ var highlightQuery = `{
   "_source": ["Ticker", "Name", "StockIndex", "Filed"],
   "query": { "bool": { 
     "must": [{ "match_phrase": { "%s": "%s" }}],
-    "filter": [{ "bool": { "must": [{ "term": { "StockIndex.keyword": "%s" }},
-                                    { "range": { "Filed": { "gt": "%s", "lt": "%s"}}}]}}]}},
+    "filter": [{ "term": { "StockIndex.keyword": "%s" }},
+               { "range": { "Filed": { "gt": "%s", "lt": "%s"}}}]}},
   "highlight": { "fragment_size": 200, "fields": { "Item1": {}, "Item1a": {} } },
   "sort": [ { "Filed": { "order": "desc", "unmapped_type": "date" } } ],
   "from": %d,
