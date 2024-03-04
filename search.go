@@ -91,6 +91,11 @@ func NewElasticClient() *ElasticClient {
   if err != nil {
     log.Fatalf("Error creating client: %s", err)
   }
+  // check info to see if es is up and running
+  res, err := es.Info()
+  if err != nil || res.IsError() {
+    log.Fatalf("Error checking es info: %s", err)
+  }
   return &ElasticClient{es: es}
 }
 
@@ -115,13 +120,12 @@ func (client *ElasticClient) histogramSearch(searchTerm, stockIndex string) (
     }
     defer res.Body.Close()
     if res.IsError() || res.Status() != "200 OK" {
-      err = fmt.Errorf("res.IsError or status not 200 OK")
-        return counts, err
+      err = fmt.Errorf("res.IsError: %s, or status not 200 OK", res.String())
+      return counts, err
     }
 
     body, err := io.ReadAll(res.Body)
     if err != nil {
-      log.Fatalf("Error reading the response body: %s", err)
       return counts, err
     }
     if err = json.Unmarshal(body, &histogramResult); err != nil {
@@ -169,13 +173,12 @@ func (client *ElasticClient) highlightSearch(searchTerm, stockIndex, section, ye
   }
   defer res.Body.Close()
   if res.IsError() || res.Status() != "200 OK" {
-    err = fmt.Errorf("res.IsError or status not 200 OK")
-      return total, hits, err
+    err = fmt.Errorf("res.IsError: %s, or status not 200 OK", res.String())
+    return total, hits, err
   }
 
   body, err := io.ReadAll(res.Body)
   if err != nil {
-    log.Fatalf("Error reading the response body: %s", err)
     return total, hits, err
   }
   if err = json.Unmarshal(body, &highlightResult); err != nil {
