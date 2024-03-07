@@ -1,6 +1,7 @@
 package main
 
 import (
+  "runtime"
   "fmt"
   "log"
   "math"
@@ -175,6 +176,7 @@ func processParameters(fn func (http.ResponseWriter, *http.Request, *Parameters)
 }
 
 func main() {
+  fmt.Printf("GOMAXPROCS is %d\n", runtime.GOMAXPROCS(0))
   es = NewElasticClient()
 	http.HandleFunc("/", processParameters(httpserver))
 	http.HandleFunc("/filter", processParameters(updateTable))
