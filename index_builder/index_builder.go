@@ -3,6 +3,7 @@ package main
 import (
   "log"
   "bytes"
+  "context"
   "sync"
   "os"
   "fmt"
@@ -13,38 +14,32 @@ import (
   "github.com/elastic/go-elasticsearch/v8/esapi"
 )
 
-const indexName = "filings"
-const dbPath = "filings-2024-02-07.sqlite3"
+const indexName = "filings_2024_03_11"
+const dbPath = "filings-2024-03-11.sqlite3"
 const selectString = `
   SELECT 
     companies.ticker, 
     companies.name, 
-    companies.industry, 
     coalesce(companies.index_membership, ''), 
     filings.accession_number, 
     filings.filed_date, 
-    filings.cik,
-    coalesce(filings.state_of_incorporation, ''), 
-    coalesce(filings.fiscal_year_end, ''), 
-    item1.contents as item1, 
-    coalesce(item1a.contents, '') as item1a
+    filings.link_10k, 
+    item1.contents AS item1, 
+    coalesce(item1a.contents, '') AS item1a
   FROM companies 
   JOIN filings ON companies.ticker=filings.ticker
   JOIN item1 ON filings.accession_number=item1.accession_number
   LEFT JOIN item1a ON filings.accession_number=item1a.accession_number
-  `
+  WHERE substr(filings.filed_date,1,4)>='2005'`
 
 type QueryResult struct {
   Ticker     string 
   Name       string
-  Industry   string
   StockIndex string
   Filed      string
-  Cik        string
-  IncorpSt   string
-  YearEnd    string
-  Item1      string
-  Item1a     string
+  Url        string
+  Item1      string `json:"1. Business"`
+  Item1a     string `json:"1A. Risk Factors"`
 }
 
 
@@ -69,7 +64,6 @@ func clientInit() {
 }
 
 // see https://github.com/elastic/go-elasticsearch/blob/main/_examples/bulk/default.go
-
 func bulkInsert(ids []string, qrs []QueryResult, wg *sync.WaitGroup) {
   defer wg.Done()
 
@@ -120,23 +114,32 @@ func main() {
 
   // initialize elasticsearch client and recreate index
   clientInit()
-  res, err = es.Indices.Delete([]string{indexName})
+  res, err = esapi.IndicesExistsRequest{
+    Index: []string{indexName},
+  }.Do(context.Background(), es)
   if err != nil {
-		log.Fatalf("Error deleting index: %s", err)
+		log.Fatalf("Error checking if index exists: %s", err)
 	}
-  if res.IsError() {
-		log.Fatalf("res error deleting index: %s", err)
-	}
-  res.Body.Close()
+  defer res.Body.Close()
+  if res.StatusCode == 200 {
+    // index already exists, delete
+    res, err = es.Indices.Delete([]string{indexName})
+    if err != nil {
+      log.Fatalf("Error deleting index: %s", err)
+    }
+    if res.IsError() {
+      log.Fatalf("res error deleting index: %s", res.Status())
+    }
+    res.Body.Close()
+  }
   res, err = es.Indices.Create(indexName)
   if err != nil {
 		log.Fatalf("Error creating index: %s", err)
 	}
   if res.IsError() {
-		log.Fatalf("res error creating index: %s", err)
+		log.Fatalf("res error creating index: %s", res.Status())
 	}
   res.Body.Close()
-
 
 	// query db and index documents
   selectSt, err := db.Prepare(selectString)
@@ -153,8 +156,8 @@ func main() {
     i+=1
     var qr QueryResult
     var id string // use accession_number for id
-    err = row.Scan(&qr.Ticker, &qr.Name, &qr.Industry, &qr.StockIndex, &id, &qr.Filed, 
-                   &qr.Cik, &qr.IncorpSt, &qr.YearEnd, &qr.Item1, &qr.Item1a) 
+    err = row.Scan(&qr.Ticker, &qr.Name, &qr.StockIndex, &id, &qr.Filed, 
+                   &qr.Url, &qr.Item1, &qr.Item1a) 
     if err != nil {
       log.Fatalf("Error scanning row: %s", err)
     }
@@ -163,6 +166,7 @@ func main() {
     qrs = append(qrs, qr)
 
     if i % 100 == 0 {
+      log.Println(i)
       wg.Add(1)
       bulkInsert(ids, qrs, &wg)
       ids = nil
