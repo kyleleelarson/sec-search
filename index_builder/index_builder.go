@@ -3,6 +3,7 @@ package main
 import (
   "log"
   "bytes"
+  "strings"
   "context"
   "sync"
   "os"
@@ -140,6 +141,19 @@ func main() {
 		log.Fatalf("res error creating index: %s", res.Status())
 	}
   res.Body.Close()
+
+  // update settings to accomodate large postings
+  res, err = esapi.IndicesPutSettingsRequest{
+    Index: []string{indexName},
+    Body: strings.NewReader(`{"index":{"highlight.max_analyzed_offset":1200000}}`),
+  }.Do(context.Background(), es)
+  if err != nil {
+		log.Fatalf("Error updating index settings: %s", err)
+	}
+  defer res.Body.Close()
+  if res.StatusCode != 200 {
+		log.Fatalf("Updating index settings returns: %d", res.StatusCode)
+	}
 
 	// query db and index documents
   selectSt, err := db.Prepare(selectString)
