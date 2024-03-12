@@ -1,7 +1,6 @@
 package main
 
 import (
-  "runtime"
   "fmt"
   "log"
   "math"
@@ -14,14 +13,14 @@ import (
 const pageSz = 15 // rows in table to display
 var es *ElasticClient
 var templates = template.Must(template.ParseFiles("./html/table.html"))
-var sections = [2]string {"Item1","Item1a"}
-var years = [20]string {"2004","2005","2006","2007","2008","2009","2010","2011","2012","2013",
-                        "2014","2015","2016","2017","2018","2019","2020","2021","2022","2023"}
+var sections = [2]string {"1. Business","1A. Risk Factors"}
+var years = [20]string {"2005","2006","2007","2008","2009","2010","2011","2012","2013","2014",
+                        "2015","2016","2017","2018","2019","2020","2021","2022","2023","2024"}
 const yearUpperBound = 2024
-const yearLowerBound = 1993
-const defaultYear       = "2023"
+const yearLowerBound = 2005
+const defaultYear       = "2024"
 const defaultStockIndex = "S&P 500"
-const defaultSection    = "Item1"
+const defaultSection    = "1. Business"
 const defaultPage       = "1"
 
 // struct of query string parameters to pass around                        
@@ -176,7 +175,6 @@ func processParameters(fn func (http.ResponseWriter, *http.Request, *Parameters)
 }
 
 func main() {
-  fmt.Printf("GOMAXPROCS is %d\n", runtime.GOMAXPROCS(0))
   es = NewElasticClient()
 	http.HandleFunc("/", processParameters(httpserver))
 	http.HandleFunc("/filter", processParameters(updateTable))

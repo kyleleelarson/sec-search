@@ -12,7 +12,7 @@ import (
   "github.com/elastic/go-elasticsearch/v8"
 )
 
-const indexName = "filings"
+const indexName = "filings_2024_03_11"
 
 var histogramQuery = `{ 
   "size": 0,
@@ -40,12 +40,12 @@ type HistogramResult struct {
 }
 
 var highlightQuery = `{ 
-  "_source": ["Ticker", "Name", "StockIndex", "Filed"],
+  "_source": ["Ticker", "Name", "StockIndex", "Filed", "Url"],
   "query": { "bool": { 
     "must": [{ "match_phrase": { "%s": "%s" }}],
     "filter": [{ "term": { "StockIndex.keyword": "%s" }},
                { "range": { "Filed": { "gt": "%s", "lt": "%s"}}}]}},
-  "highlight": { "fragment_size": 200, "fields": { "Item1": {}, "Item1a": {} } },
+  "highlight": { "fragment_size": 200, "fields": { "1. Business": {}, "1A. Risk Factors": {} } },
   "sort": [ { "Filed": { "order": "desc", "unmapped_type": "date" } } ],
   "from": %d,
   "size": %d
@@ -65,10 +65,11 @@ type HighlightResult struct {
         Name       string
         StockIndex string
         Filed      string
+        Url        string
       } `json:"_source"`
       Highlights struct {
-        Item1  []template.HTML // so <em> is not escaped
-        Item1a []template.HTML
+        Item1  []template.HTML `json:"1. Business"`     // so <em> is not escaped
+        Item1a []template.HTML `json:"1A. Risk Factors"`
       } `json:"highlight"`
     } `json:"hits"`
   } `json:"hits"`
@@ -94,7 +95,7 @@ func NewElasticClient() *ElasticClient {
   // check info to see if es is up and running
   res, err := es.Info()
   if err != nil || res.IsError() {
-    log.Fatalf("Error checking es info: %s", err)
+    log.Fatalf("Error checking es info: %s, %s", err)
   }
   return &ElasticClient{es: es}
 }
@@ -192,7 +193,8 @@ func (client *ElasticClient) highlightSearch(searchTerm, stockIndex, section, ye
     m["Filed"] = hit.Source.Filed
     m["Ticker"] = hit.Source.Ticker
     m["Name"] = hit.Source.Name
-    if section == "Item1" {
+    m["Url"] = hit.Source.Url
+    if section == "1. Business" {
       m["Excerpt"] = hit.Highlights.Item1[0]
     } else {
       m["Excerpt"] = hit.Highlights.Item1a[0]

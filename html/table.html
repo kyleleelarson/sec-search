@@ -16,12 +16,14 @@
             <option value="{{.}}">{{.}}</option>
           {{ end }}
       </select></th>
+      <th></th>
     </tr>
     <tr>
       <th>Filed</th>
       <th>Ticker</th>
       <th>Company</th>
       <th>Excerpt</th>
+      <th>URL</th>
     </tr>
       {{ range .Hits }}
       <tr>
@@ -29,6 +31,7 @@
        <td>{{.Ticker}}</td>
        <td>{{.Name}}</td>
        <td>{{.Excerpt}}</td>
+       <td><a href="{{.Url}}" target="_blank">⎘</a></td>
       </tr>
       {{ end }}
   </table>
