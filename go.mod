@@ -1,4 +1,4 @@
-module github.com/kyleleelarson/sec-scraping
+module github.com/kyleleelarson/sec-search
 
 go 1.21.4
 

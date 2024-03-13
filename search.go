@@ -95,7 +95,7 @@ func NewElasticClient() *ElasticClient {
   // check info to see if es is up and running
   res, err := es.Info()
   if err != nil || res.IsError() {
-    log.Fatalf("Error checking es info: %s, %s", err)
+    log.Fatalf("Error checking es info: %s", err)
   }
   return &ElasticClient{es: es}
 }
