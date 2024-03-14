@@ -82,7 +82,7 @@ type ElasticClient struct {
 func NewElasticClient() *ElasticClient {
   cfg := elasticsearch.Config {
     Addresses: []string {
-      "https://localhost:9200",
+      os.Getenv("ES_ADDR"),
     },
     Username: "elastic",
     Password: os.Getenv("ES_PASS"),

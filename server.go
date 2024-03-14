@@ -1,6 +1,7 @@
 package main
 
 import (
+  "os"
   "fmt"
   "log"
   "math"
@@ -89,7 +90,7 @@ func home(w http.ResponseWriter, r *http.Request) {
   fmt.Fprintf(w, "%s", buf.String())
 }
 
-func updateTable(w http.ResponseWriter, r *http.Request, p *Parameters) {
+func updateTableHandler(w http.ResponseWriter, r *http.Request, p *Parameters) {
   var (
     buf bytes.Buffer
     tableData *TableData
@@ -115,7 +116,7 @@ func updateTable(w http.ResponseWriter, r *http.Request, p *Parameters) {
   fmt.Fprintf(w, "%s", buf.String())
 }
 
-func httpserver(w http.ResponseWriter, r *http.Request, p *Parameters) {
+func searchHandler(w http.ResponseWriter, r *http.Request, p *Parameters) {
   var (
     buf bytes.Buffer
     tableData *TableData
@@ -125,7 +126,7 @@ func httpserver(w http.ResponseWriter, r *http.Request, p *Parameters) {
   counts, err := es.histogramSearch(p.searchTerm, p.stockIndex)
   if err != nil {
     http.Error(w, "histogram search error", http.StatusInternalServerError)
-    log.Printf("in httpserver with search term '%s', histogram search error: %s\n",
+    log.Printf("in searchHandler with search term '%s', histogram search error: %s\n",
       p.searchTerm, err.Error())
     return
   }
@@ -133,7 +134,7 @@ func httpserver(w http.ResponseWriter, r *http.Request, p *Parameters) {
   err = renderGraph(counts, p, &buf)
   if err != nil {
     http.Error(w, "graph render error", http.StatusInternalServerError)
-    log.Printf("in httpserver with search term '%s', render graph error: %s\n",
+    log.Printf("in searchHandler with search term '%s', render graph error: %s\n",
       p.searchTerm, err.Error())
     return
   }
@@ -141,7 +142,7 @@ func httpserver(w http.ResponseWriter, r *http.Request, p *Parameters) {
   tableData, err = prepareTable(p)
   if err != nil {
     http.Error(w, "prepare table error", http.StatusInternalServerError)
-    log.Printf("in httpserver with search term '%s', prepare table error: %s\n",
+    log.Printf("in searchHandler with search term '%s', prepare table error: %s\n",
       p.searchTerm, err.Error())
     return
   }
@@ -149,7 +150,7 @@ func httpserver(w http.ResponseWriter, r *http.Request, p *Parameters) {
   err = templates.ExecuteTemplate(&buf, "table.html", tableData)
   if err != nil {
     http.Error(w, "template error", http.StatusInternalServerError)
-    log.Printf("in httpserver with search term '%s', execute template error: %s\n",
+    log.Printf("in searchHandler with search term '%s', execute template error: %s\n",
       p.searchTerm, err.Error())
     return
   }
@@ -191,9 +192,15 @@ func processParameters(fn func (http.ResponseWriter, *http.Request, *Parameters)
 }
 
 func main() {
+  port := os.Getenv("PORT")
+  if port == "" {
+    log.Fatal("Must set PORT and ES related environmental variables")
+  }
+
   es = NewElasticClient()
+
 	http.HandleFunc("/", home)
-	http.HandleFunc("/search", processParameters(httpserver))
-	http.HandleFunc("/filter", processParameters(updateTable))
-	http.ListenAndServe(":8081", nil)
+	http.HandleFunc("/search", processParameters(searchHandler))
+	http.HandleFunc("/filter", processParameters(updateTableHandler))
+	panic(http.ListenAndServe(port, nil))
 }
