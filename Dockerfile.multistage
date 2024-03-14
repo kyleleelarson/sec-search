@@ -1,0 +1,27 @@
+# syntax=docker/dockerfile:1
+
+# build application binary
+FROM golang:1.21 AS build-stage
+
+WORKDIR /app
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY *.go ./
+
+RUN CGO_ENABLED=0 GOOS=linux go build -o /docker-server
+
+# Deploy the application binary into lean image
+#FROM ubuntu:22.04 AS deploy-stage 
+# use distroless base image
+FROM gcr.io/distroless/static-debian12 AS deploy-stage
+
+WORKDIR /
+
+ADD html ./html
+COPY --from=build-stage /docker-server /docker-server
+
+EXPOSE 8081
+
+CMD ["/docker-server"]
