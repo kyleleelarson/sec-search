@@ -187,6 +187,10 @@ func processParameters(fn func (http.ResponseWriter, *http.Request, *Parameters)
       return
     }
 
+    // log all requests
+    log.Printf(",%s,'%s',%s,%s,%s,%d\n", r.URL.Path, p.searchTerm, p.stockIndex, 
+      p.section, p.year, p.page, )
+
     fn(w, r, &p);
   }
 }
