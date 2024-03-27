@@ -65,7 +65,6 @@ func renderGraph(counts map[string](map[string]int), p *Parameters, buf *bytes.B
     charts.WithTitleOpts(opts.Title{
       Title:    p.searchTerm,
       Subtitle: p.stockIndex,
-      Top: "top",
     }),
     charts.WithLegendOpts(opts.Legend{Top: "bottom", Show: true}),
 		charts.WithInitializationOpts(opts.Initialization{Theme: types.ThemeWesteros}),
