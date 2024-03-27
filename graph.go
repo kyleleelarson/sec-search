@@ -62,12 +62,13 @@ func renderGraph(counts map[string](map[string]int), p *Parameters, buf *bytes.B
   bar.Renderer = NewEmbedRender(bar, bar.Validate)
 	// set some global options like Title/Legend/ToolTip or anything else
 	bar.SetGlobalOptions(
-		charts.WithInitializationOpts(opts.Initialization{Theme: types.ThemeWesteros}),
     charts.WithTitleOpts(opts.Title{
-      Subtitle: p.searchTerm,
-      Title:    p.stockIndex,
+      Title:    p.searchTerm,
+      Subtitle: p.stockIndex,
+      Top: "top",
     }),
-    //charts.WithLegendOpts(opts.Legend{Right: "80px"}),
+    charts.WithLegendOpts(opts.Legend{Top: "bottom", Show: true}),
+		charts.WithInitializationOpts(opts.Initialization{Theme: types.ThemeWesteros}),
 	)
 
 	// Put data into instance
