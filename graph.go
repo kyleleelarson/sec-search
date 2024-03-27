@@ -64,9 +64,11 @@ func renderGraph(counts map[string](map[string]int), p *Parameters, buf *bytes.B
 	bar.SetGlobalOptions(
 		charts.WithInitializationOpts(opts.Initialization{Theme: types.ThemeWesteros}),
     charts.WithTitleOpts(opts.Title{
-		Title:    p.searchTerm,
-		Subtitle: p.stockIndex,
-	}))
+      Subtitle: p.searchTerm,
+      Title:    p.stockIndex,
+    }),
+    //charts.WithLegendOpts(opts.Legend{Right: "80px"}),
+	)
 
 	// Put data into instance
 	bar.SetXAxis(years).
