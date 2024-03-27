@@ -79,6 +79,8 @@ func home(w http.ResponseWriter, r *http.Request) {
     buf bytes.Buffer
     err error
   )
+  // log request
+  log.Printf(",%s,HOME\n", r.URL.Path)
 
   err = templates.ExecuteTemplate(&buf, "index.html", nil)
   if err != nil {
