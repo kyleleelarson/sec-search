@@ -68,7 +68,8 @@ type HighlightResult struct {
         Url        string
       } `json:"_source"`
       Highlights struct {
-        Item1  []template.HTML `json:"1. Business"`     // so <em> is not escaped
+        // use template.HTML so <em> is not escaped
+        Item1  []template.HTML `json:"1. Business"`
         Item1a []template.HTML `json:"1A. Risk Factors"`
       } `json:"highlight"`
     } `json:"hits"`
